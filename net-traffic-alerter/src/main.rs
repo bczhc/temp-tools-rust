@@ -4,9 +4,9 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
 use once_cell::sync::Lazy;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::process::Stdio;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
 use systemstat::{Platform, System};
@@ -89,10 +89,11 @@ fn main() {
 fn register_signal_handlers() {
     unsafe {
         libc::signal(libc::SIGUSR1, sigusr1_handler as libc::sighandler_t);
-        *INIT_TX_BYTES.write().unwrap() = current_tx_bytes();
+        libc::signal(libc::SIGUSR2, sigusr2_handler as libc::sighandler_t);
     }
 }
 
+/// reset traffic counter
 fn sigusr1_handler() {
     println!("SIGUSR1 received, reset initial tx_byte");
     *rw_write!(INIT_TX_BYTES) = current_tx_bytes();
@@ -102,12 +103,27 @@ fn sigusr1_handler() {
     }
 }
 
-fn start_monitoring() {
-    let read_guard = rw_read!(CONFIGS);
-    let configs = read_guard.as_ref().unwrap();
-    let email_config = Arc::new(configs.email.clone());
+/// write current used tx bytes to file
+fn sigusr2_handler() {
+    let used_tx_bytes = current_tx_bytes() - *rw_read!(INIT_TX_BYTES);
+    let mut file = File::options()
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open("current_tx_bytes")
+        .unwrap();
+    file.write_all(used_tx_bytes.to_string().as_bytes())
+        .unwrap();
+}
 
-    *INIT_TX_BYTES.write().unwrap() = current_tx_bytes();
+fn start_monitoring() {
+    let configs;
+    {
+        let read_guard = rw_read!(CONFIGS);
+        configs = read_guard.as_ref().unwrap().clone();
+    }
+
+    *rw_write!(INIT_TX_BYTES) = current_tx_bytes();
     let interval = rw_read!(ARGUMENTS).interval;
 
     rw_write!(LIMIT_CHECKER).replace(LimitChecker::new(&configs.notify_limits));
@@ -130,15 +146,14 @@ fn start_monitoring() {
         match check {
             None => {}
             Some(limit_byte) => {
-                let email_config = Arc::clone(&email_config);
                 spawn(move || {
                     println!("sending email...");
                     send_email(
+                        "network use alert!!!",
                         format!(
                             "Over limit! tx limit: {}",
                             ByteSize(limit_byte).to_string_as(true),
                         ),
-                        &*email_config,
                     );
                     println!("email sent");
                 });
@@ -181,7 +196,13 @@ fn current_tx_bytes() -> u64 {
     stat.tx_bytes.0
 }
 
-fn send_email(content: String, email_configs: &EmailConfigs) {
+fn send_email(subject: &str, content: String) {
+    let email_configs;
+    {
+        let read_guard = rw_read!(CONFIGS);
+        email_configs = read_guard.as_ref().unwrap().email.clone();
+    }
+
     let credentials = Credentials::new(
         email_configs.username.clone(),
         email_configs.password.clone(),
@@ -190,7 +211,7 @@ fn send_email(content: String, email_configs: &EmailConfigs) {
     let message = Message::builder()
         .from(email_configs.from.parse().unwrap())
         .to(email_configs.to.parse().unwrap())
-        .subject("network use alert!!!")
+        .subject(subject)
         .body(content)
         .unwrap();
 
