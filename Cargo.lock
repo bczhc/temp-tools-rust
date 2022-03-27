@@ -59,21 +59,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "check-net-traffic"
-version = "0.1.0"
-dependencies = [
- "bytesize",
- "clap",
- "duct",
- "interfaces",
- "lettre",
- "libc",
- "once_cell",
- "systemstat",
- "toml",
-]
-
-[[package]]
 name = "chrono"
 version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -395,6 +380,21 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "net-traffic-alerter"
+version = "0.1.0"
+dependencies = [
+ "bytesize",
+ "clap",
+ "duct",
+ "interfaces",
+ "lettre",
+ "libc",
+ "once_cell",
+ "systemstat",
+ "toml",
 ]
 
 [[package]]
